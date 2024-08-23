@@ -12,6 +12,8 @@ import platform
 from datetime import datetime
 from key import SERVER_ID, API_KEY, BOT_TOKEN
 
+# Made by Joseph_fallen
+
 # Fetch sensitive data directly
 ID = SERVER_ID
 API_KEY = API_KEY
