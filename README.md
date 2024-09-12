@@ -33,14 +33,9 @@
   You need to build a bot then you can see the profile of your bot.
   
   Get the token by clicking on copy.
-  
 ##
-### Edit main.py
-  
-  Now paste your account id and the api key in the quotes and the  bot token in the quotes.
-  
-  ![Alt Text](https://i.ibb.co/p1stbVy/tutorial.jpg)
-  
+### Put your info into `key.py`
+
 ##
 ## Run the bot
   
