@@ -10,26 +10,44 @@ import io
 import psutil
 import platform
 from datetime import datetime
-import mysql.connector
-from mysql.connector import Error
-from key import SERVER_ID, API_KEY, BOT_TOKEN, MYSQL_HOST, MYSQL_USER, MYSQL_PASSWORD, MYSQL_DATABASE
+import importlib.util
 
-# Fetch sensitive data directly
-ID = SERVER_ID
-API_KEY = API_KEY
-BOT_TOKEN = BOT_TOKEN
+# Load sensitive information from key.py
+def load_sensitive_info():
+    key_path = os.path.join(os.path.dirname(__file__), 'key.py')
+    spec = importlib.util.spec_from_file_location("key", key_path)
+    key = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(key)
+    return {
+        "SERVER_ID": key.SERVER_ID,
+        "API_KEY": key.API_KEY,
+        "BOT_TOKEN": key.BOT_TOKEN
+    }
+
+sensitive_info = load_sensitive_info()
+
+# Load configuration from config.json
+def load_config():
+    config_path = os.path.join(os.path.dirname(__file__), 'config.json')
+    if not os.path.isfile(config_path):
+        logging.error(f"Configuration file not found at {config_path}. Please ensure 'config.json' is present in the correct directory.")
+        exit(1)
+    with open(config_path, 'r') as f:
+        return json.load(f)
+
+config = load_config()
+
+# Fetch sensitive data
+ID = sensitive_info["SERVER_ID"]
+API_KEY = sensitive_info["API_KEY"]
+BOT_TOKEN = sensitive_info["BOT_TOKEN"]
 
 # Configurable settings
-ENABLE_STATUS = True
-WAIT_TIME = 60  # How often the bot should query the API in seconds
-ENABLE_SECONDARY_BOT = False
-SERVER_INDEX = 0  # Change this if you want to display another server
+WAIT_TIME = config.get("WAIT_TIME", 60)
+ENABLE_STATUS = config.get("ENABLE_STATUS", True)
+SERVER_INDEX = config.get("SERVER_INDEX", 0)
+BLACKLIST = config.get("BLACKLIST", [])
 BOT_VERSION = "v2.2.1"
-
-ADMIN_ROLE_ID = 123456789012345678
-
-# Blacklist configuration
-BLACKLIST = ['!!', '!!!', '!!!!']  # Add your blacklisted words or phrases here
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -45,91 +63,33 @@ intents.presences = True
 
 client = commands.Bot(command_prefix='!', intents=intents, help_command=None)
 
-
-def create_tables_if_not_exists():
-    connection = create_mysql_connection()
-    if connection:
-        try:
-            cursor = connection.cursor()
-            # Create tables if they do not exist
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS api_data (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    success BOOLEAN NOT NULL,
-                    players_info JSON NOT NULL,
-                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS player_counts (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    server_id INT NOT NULL,
-                    total_players INT NOT NULL,
-                    total_slots INT NOT NULL,
-                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                );
-            """)
-            connection.commit()
-            cursor.close()
-            logger.info("Tables created or verified successfully.")
-        except Error as e:
-            logger.error(f"Error creating tables: {e}")
-        finally:
-            connection.close()
-    else:
-        logger.error("Failed to connect to the database to create tables.")
-
-
-# Function to connect to MySQL database
-def create_mysql_connection():
+def save_data_to_json(data, filename):
     try:
-        connection = mysql.connector.connect(
-            host=MYSQL_HOST,
-            user=MYSQL_USER,
-            password=MYSQL_PASSWORD,
-            database=MYSQL_DATABASE
-        )
-        if connection.is_connected():
-            logger.info("Connected to MySQL database.")
-            return connection
-    except Error as e:
-        logger.error(f"Error while connecting to MySQL: {e}")
-        return None
+        with open(filename, 'w') as f:
+            json.dump(data, f, indent=4)
+        logger.info(f"Data successfully written to '{filename}'.")
+    except Exception as e:
+        logger.error(f"Error writing to '{filename}': {e}")
 
-
-# Log API data to MySQL database
-def log_api_data_to_db(data):
-    connection = create_mysql_connection()
-    if connection:
+def load_json_data(filename):
+    if os.path.isfile(filename):
         try:
-            cursor = connection.cursor()
-            # Assuming `api_data` table has columns for success and players info
-            success = data.get("Success", False)
-            players_info = json.dumps(data.get("Servers", []))
-            query = """INSERT INTO api_data (success, players_info, timestamp) 
-                       VALUES (%s, %s, %s)"""
-            cursor.execute(query, (success, players_info, datetime.now()))
-            connection.commit()
-            cursor.close()
-            connection.close()
-            logger.info("API data logged to database successfully.")
-        except Error as e:
-            logger.error(f"Error while logging data to MySQL: {e}")
-    else:
-        logger.error("No MySQL connection available to log data.")
-
+            with open(filename, 'r') as f:
+                return json.load(f)
+        except Exception as e:
+            logger.error(f"Error reading from '{filename}': {e}")
+    return {}
 
 @client.event
 async def on_ready():
     logger.info("The bot is running.")
-    create_tables_if_not_exists()  # Ensure tables are created
-
+    
     while True:
         async with aiohttp.ClientSession() as session:
             try:
                 async with session.get(f"https://api.scpslgame.com/serverinfo.php?id={ID}&key={API_KEY}&players=true") as response:
                     content_type = response.headers.get('Content-Type', '')
-
+                    
                     if 'application/json' not in content_type:
                         response_text = await response.text()
                         logger.error(f"Unexpected content type: {content_type}")
@@ -141,29 +101,12 @@ async def on_ready():
                             data = {}
                     else:
                         data = await response.json()
-
+                    
                     if data.get("Success"):
-                        # Log API data to MySQL
-                        log_api_data_to_db(data)
+                        save_data_to_json(data, 'data.json')
 
                         player_count = data["Servers"][SERVER_INDEX]["Players"]
                         total_players, total_slots = map(int, player_count.split("/"))
-
-                        # Insert player count into MySQL
-                        connection = create_mysql_connection()
-                        if connection:
-                            try:
-                                cursor = connection.cursor()
-                                query = """INSERT INTO player_counts (server_id, total_players, total_slots, timestamp) 
-                                           VALUES (%s, %s, %s, %s)"""
-                                cursor.execute(query, (ID, total_players, total_slots, datetime.now()))
-                                connection.commit()
-                                cursor.close()
-                                logger.info("Player count data logged to database successfully.")
-                            except Error as e:
-                                logger.error(f"Error while logging player count data to MySQL: {e}")
-                            finally:
-                                connection.close()
 
                         if ENABLE_STATUS:
                             status = (discord.Status.idle if total_players == 0 else 
@@ -184,7 +127,6 @@ async def on_ready():
                 logger.info(f"Player count: {activity_message}")
             await asyncio.sleep(WAIT_TIME)
 
-
 @client.event
 async def on_message(message):
     if message.author == client.user:
@@ -196,7 +138,6 @@ async def on_message(message):
 
     await client.process_commands(message)  # Process commands if no blacklisted words are found
 
-
 # Basic commands
 @client.command(name='ping')
 async def ping(ctx):
@@ -206,7 +147,6 @@ async def ping(ctx):
         color=discord.Color.green()
     )
     await ctx.send(embed=embed)
-
 
 @client.command(name='help')
 async def help_command(ctx):
@@ -218,56 +158,43 @@ async def help_command(ctx):
             "`!players` - Display the amount of players currently in the server.\n"
             "`!info` - Display the system uptime and other information.\n"
             "`!version` - Displays the bot's current version.\n"
-            "`!mysql_test` - Test the connection to the MySQL database.\n"
+            "`!json_test` - Test reading from the JSON file.\n"
         ),
         color=discord.Color.blue()
     )
     await ctx.send(embed=embed)
 
-
 @client.command(name='players')
 async def player_count(ctx):
     try:
-        connection = create_mysql_connection()
-        if connection:
-            cursor = connection.cursor(dictionary=True)
-            query = "SELECT total_players, total_slots, timestamp FROM player_counts ORDER BY timestamp DESC LIMIT 1"
-            cursor.execute(query)
-            result = cursor.fetchone()
-            cursor.close()
-            connection.close()
+        data = load_json_data('data.json')
+        if data.get("Success"):
+            player_count = data["Servers"][SERVER_INDEX]["Players"]
+            total_players, total_slots = map(int, player_count.split("/"))
 
-            if result:
-                total_players = result['total_players']
-                total_slots = result['total_slots']
+            # Create the plot
+            fig, ax = plt.subplots(figsize=(10, 5))
+            fig.patch.set_facecolor('#1c1c1c')  # Background color of the figure
 
-                # Create the plot
-                fig, ax = plt.subplots(figsize=(10, 5))
-                fig.patch.set_facecolor('#1c1c1c')  # Background color of the figure
+            # Set the text in the middle
+            plt.text(0.5, 0.5, f'{total_players:,} / {total_slots:,}\nPlayers Online', 
+                     horizontalalignment='center', verticalalignment='center', 
+                     fontsize=50, color='#4CAF50', fontweight='bold',
+                     transform=ax.transAxes)
 
-                # Set the text in the middle
-                plt.text(0.5, 0.5, f'{total_players:,} / {total_slots:,}\nPlayers Online', 
-                         horizontalalignment='center', verticalalignment='center', 
-                         fontsize=50, color='#4CAF50', fontweight='bold',
-                         transform=ax.transAxes)
+            # Remove axes
+            ax.axis('off')
 
-                # Remove axes
-                ax.axis('off')
+            # Save the plot to a BytesIO object
+            buf = io.BytesIO()
+            plt.savefig(buf, format='png', bbox_inches='tight', transparent=True)
+            buf.seek(0)
+            plt.close(fig)
 
-                # Save the plot to a BytesIO object
-                buf = io.BytesIO()
-                plt.savefig(buf, format='png', bbox_inches='tight', transparent=True)
-                buf.seek(0)
-                plt.close(fig)
-
-                # Send the plot as a file in Discord
-                await ctx.send(file=discord.File(fp=buf, filename='player_count.png'))
-            else:
-                raise Exception("No player count data found.")
-
+            # Send the plot as a file in Discord
+            await ctx.send(file=discord.File(fp=buf, filename='player_count.png'))
         else:
-            raise Exception("Database connection failed.")
-
+            raise Exception("No player count data found.")
     except Exception as e:
         logger.error(f"Error: {e}")
         embed = discord.Embed(
@@ -276,7 +203,6 @@ async def player_count(ctx):
             color=discord.Color.red()
         )
         await ctx.send(embed=embed)
-
 
 @client.command(name='info')
 async def info(ctx):
@@ -293,7 +219,6 @@ async def info(ctx):
     )
     await ctx.send(embed=embed)
 
-
 @client.command(name='version')
 async def version(ctx):
     embed = discord.Embed(
@@ -303,31 +228,43 @@ async def version(ctx):
     )
     await ctx.send(embed=embed)
 
-
-@client.command(name='mysql_test')
-async def mysql_test(ctx):
+@client.command(name='json_test')
+async def json_test(ctx):
     try:
-        connection = create_mysql_connection()
-        if connection:
-            embed = discord.Embed(
-                title="MySQL Test",
-                description="Successfully connected to the MySQL database!",
-                color=discord.Color.green()
-            )
-            connection.close()
-        else:
-            embed = discord.Embed(
-                title="MySQL Test",
-                description="Failed to connect to the MySQL database.",
-                color=discord.Color.red()
-            )
+        # Load data from the JSON file
+        data = load_json_data('data.json')
+        
+        # Function to censor sensitive information
+        def censor_sensitive_info(data):
+            if isinstance(data, dict):
+                # Remove or obscure sensitive information
+                data = {k: (v if k not in ["port", "ID"] else "REDACTED") for k, v in data.items()}
+                # Recursively process nested dictionaries
+                for key, value in data.items():
+                    if isinstance(value, dict):
+                        data[key] = censor_sensitive_info(value)
+                    elif isinstance(value, list):
+                        data[key] = [censor_sensitive_info(item) if isinstance(item, dict) else item for item in value]
+            elif isinstance(data, list):
+                data = [censor_sensitive_info(item) if isinstance(item, dict) else item for item in data]
+            return data
+        
+        # Censor the sensitive information
+        censored_data = censor_sensitive_info(data)
+        
+        # Create an embed with the censored data
+        embed = discord.Embed(
+            title="JSON Test",
+            description=f"Data loaded from JSON file:\n{json.dumps(censored_data, indent=4)}",
+            color=discord.Color.green()
+        )
     except Exception as e:
         embed = discord.Embed(
-            title="MySQL Test",
+            title="JSON Test",
             description=f"Error: {e}",
             color=discord.Color.red()
         )
+    
     await ctx.send(embed=embed)
-
 
 client.run(BOT_TOKEN)
