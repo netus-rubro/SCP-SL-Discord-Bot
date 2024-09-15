@@ -17,6 +17,7 @@ import sys
 # Global variables
 last_query_time = 0
 QUERY_INTERVAL = 11
+DATA_FILE = 'player_data.json'
 
 # Load sensitive information from key.py
 def load_sensitive_info():
@@ -54,7 +55,7 @@ ENABLE_STATUS = config.get("ENABLE_STATUS", True)
 SERVER_INDEX = config.get("SERVER_INDEX", 0)
 BLACKLIST = config.get("BLACKLIST", [])
 AUTHORIZED_USER_ID = config.get("AUTHORIZED_USER_ID")
-BOT_VERSION = "v4.0.0"
+BOT_VERSION = "v4.1.0"
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -281,24 +282,52 @@ async def version(ctx):
     )
     await ctx.send(embed=embed)
 
+
+# Command to test reading from JSON and censor sensitive info
 # Command to test JSON read/write
+# Command to test reading from JSON and censor sensitive info
 @client.command(name='json_test')
 async def json_test(ctx):
-    data = load_json_data('player_data.json')
-    if data:
+    try:
+        # Load data from the JSON file
+        data = load_json_data(DATA_FILE)
+        
+        # Function to censor sensitive information
+        def censor_sensitive_info(data):
+            if isinstance(data, dict):
+                # Remove or obscure sensitive information
+                data = {k: (v if k not in ["port", "ID"] else "REDACTED") for k, v in data.items()}
+                # Recursively process nested dictionaries
+                for key, value in data.items():
+                    if isinstance(value, dict):
+                        data[key] = censor_sensitive_info(value)
+                    elif isinstance(value, list):
+                        data[key] = [censor_sensitive_info(item) if isinstance(item, dict) else item for item in value]
+            elif isinstance(data, list):
+                data = [censor_sensitive_info(item) if isinstance(item, dict) else item for item in data]
+            return data
+        
+        # Censor the sensitive information
+        censored_data = censor_sensitive_info(data)
+        
+        # Create an embed with the censored data
         embed = discord.Embed(
             title="JSON Test",
-            description="Successfully read from 'player_data.json'.",
+            description=f"Data loaded from JSON file:\n```json\n{json.dumps(censored_data, indent=4)}```",
             color=discord.Color.green()
         )
-    else:
+        await ctx.send(embed=embed)  # Add this line to send the embed message
+
+    except Exception as e:
+        logger.error(f"Error occurred in json_test command: {e}")
         embed = discord.Embed(
-            title="JSON Test",
-            description="Failed to read from 'data.json'.",
+            title="Error",
+            description="An unexpected error occurred.",
             color=discord.Color.red()
         )
-    await ctx.send(embed=embed)
+        await ctx.send(embed=embed)
 
+# Command to restart the bot
 # Command to restart the bot
 @client.command(name='restart')
 async def restart(ctx):
@@ -309,7 +338,7 @@ async def restart(ctx):
 
         try:
             # Send a DM to the user asking for confirmation
-            dm_message = await ctx.author.send(
+            await ctx.author.send(
                 "Are you sure you want to restart the bot? Type 'YES' to confirm."
             )
             
