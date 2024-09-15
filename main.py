@@ -284,11 +284,11 @@ async def version(ctx):
 # Command to test JSON read/write
 @client.command(name='json_test')
 async def json_test(ctx):
-    data = load_json_data('data.json')
+    data = load_json_data('player_data.json')
     if data:
         embed = discord.Embed(
             title="JSON Test",
-            description="Successfully read from 'data.json'.",
+            description="Successfully read from 'player_data.json'.",
             color=discord.Color.green()
         )
     else:
