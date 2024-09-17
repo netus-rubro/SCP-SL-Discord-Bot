@@ -7,14 +7,10 @@ import json
 import logging
 import matplotlib.pyplot as plt
 import io
-import psutil
-import platform
-from datetime import datetime
-import importlib.util
 import time
-import sys
+import importlib.util
 
-# Global variables
+# Constants
 last_query_time = 0
 QUERY_INTERVAL = 11
 DATA_FILE = 'player_data.json'
@@ -54,7 +50,6 @@ WAIT_TIME = config.get("WAIT_TIME", 60)
 ENABLE_STATUS = config.get("ENABLE_STATUS", True)
 SERVER_INDEX = config.get("SERVER_INDEX", 0)
 BLACKLIST = config.get("BLACKLIST", [])
-AUTHORIZED_USER_ID = config.get("AUTHORIZED_USER_ID")
 BOT_VERSION = "v4.1.0"
 
 # Setup logging
@@ -122,6 +117,9 @@ async def set_bot_status(session):
                 activity_message = f"{total_players}/{total_slots} players online"
                 await client.change_presence(status=status, activity=discord.Game(name=activity_message))
                 logger.info(f"Player count: {activity_message}")
+                
+                # Save the data to a file
+                save_data_to_json(data, DATA_FILE)
             else:
                 logger.error(f"API Error: {data.get('Error')}")
                 await client.change_presence(status=discord.Status.idle, activity=discord.Game(name="Error fetching player data"))
@@ -188,103 +186,70 @@ async def player_count(ctx):
     # Check if QUERY_INTERVAL has passed since the last query
     if current_time - last_query_time >= QUERY_INTERVAL:
         try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(f"https://api.scpslgame.com/serverinfo.php?id={ID}&key={API_KEY}&players=true") as response:
-                    content_type = response.headers.get('Content-Type', '')
-                    if 'application/json' in content_type:
-                        data = await response.json()
-                    else:
-                        html_content = await response.text()
-                        logger.error(f"Unexpected content type: {content_type}")
-                        logger.error(f"Response Text: {html_content}")
-                        data = {}
-                    
-                    if data.get("Success"):
-                        save_data_to_json(data, 'data.json')
+            # Read data from the file
+            data = load_json_data(DATA_FILE)
+            if data.get("Success"):
+                # Update the last query time
+                last_query_time = current_time
 
-                        # Update the last query time
-                        last_query_time = current_time
+                # Proceed to generate the player count plot
+                player_count = data["Servers"][SERVER_INDEX]["Players"]
+                total_players, total_slots = map(int, player_count.split("/"))
 
-                        # Proceed to generate the player count plot
-                        player_count = data["Servers"][SERVER_INDEX]["Players"]
-                        total_players, total_slots = map(int, player_count.split("/"))
+                # Create the plot
+                fig, ax = plt.subplots(figsize=(10, 5))
+                fig.patch.set_facecolor('#1c1c1c')  # Background color of the figure
 
-                        # Create the plot
-                        fig, ax = plt.subplots(figsize=(10, 5))
-                        fig.patch.set_facecolor('#1c1c1c')  # Background color of the figure
+                # Set the text in the middle
+                plt.text(0.5, 0.5, f'{total_players:,} / {total_slots:,}\nPlayers Online', 
+                         horizontalalignment='center', verticalalignment='center', 
+                         fontsize=50, color='#4CAF50', fontweight='bold',
+                         transform=ax.transAxes)
 
-                        # Set the text in the middle
-                        plt.text(0.5, 0.5, f'{total_players:,} / {total_slots:,}\nPlayers Online', 
-                                 horizontalalignment='center', verticalalignment='center', 
-                                 fontsize=50, color='#4CAF50', fontweight='bold',
-                                 transform=ax.transAxes)
+                # Remove axes
+                ax.axis('off')
 
-                        # Remove axes
-                        ax.axis('off')
+                # Save the plot to a BytesIO object
+                buf = io.BytesIO()
+                plt.savefig(buf, format='png', bbox_inches='tight', transparent=True)
+                buf.seek(0)
+                plt.close(fig)
 
-                        # Save the plot to a BytesIO object
-                        buf = io.BytesIO()
-                        plt.savefig(buf, format='png', bbox_inches='tight', transparent=True)
-                        buf.seek(0)
-                        plt.close(fig)
-
-                        # Send the plot as a file in Discord
-                        await ctx.send(file=discord.File(fp=buf, filename='player_count.png'))
-                    else:
-                        raise Exception("No player count data found.")
-        except aiohttp.ClientError as e:
-            logger.error(f"HTTP Client Error: {e}")
-            embed = discord.Embed(
-                title="Error",
-                description="Failed to retrieve player count data.",
-                color=discord.Color.red()
-            )
-            await ctx.send(embed=embed)
+                # Send the plot as a file in Discord
+                await ctx.send(file=discord.File(fp=buf, filename='player_count.png'))
+            else:
+                embed = discord.Embed(
+                    title="Player Count",
+                    description="No player count data available from the API.",
+                    color=discord.Color.red()
+                )
+                await ctx.send(embed=embed)
         except Exception as e:
-            logger.error(f"Error occurred: {e}")
+            logger.error(f"General Error: {e}")
             embed = discord.Embed(
                 title="Error",
-                description="An unexpected error occurred.",
+                description="Unable to fetch player count information.",
                 color=discord.Color.red()
             )
             await ctx.send(embed=embed)
     else:
         embed = discord.Embed(
-            title="Rate Limit",
-            description=f"Please wait {int(QUERY_INTERVAL - (current_time - last_query_time))} seconds before using this command again.",
+            title="Player Count",
+            description="Please wait before requesting player count again.",
             color=discord.Color.orange()
         )
         await ctx.send(embed=embed)
 
-# Command to display system info
-@client.command(name='info')
-async def info(ctx):
-    uptime = datetime.now() - datetime.fromtimestamp(psutil.boot_time())
-    embed = discord.Embed(
-        title="System Information",
-        description=(
-            f"**Uptime:** {str(uptime).split('.')[0]}\n"
-            f"**Platform:** {platform.system()} {platform.version()}\n"
-            f"**CPU Usage:** {psutil.cpu_percent()}%\n"
-            f"**Memory Usage:** {psutil.virtual_memory().percent}%"
-        ),
-        color=discord.Color.blue()
-    )
-    await ctx.send(embed=embed)
-
-# Command to display bot version
+# Version command
 @client.command(name='version')
 async def version(ctx):
     embed = discord.Embed(
         title="Bot Version",
-        description=f"The current bot version is {BOT_VERSION}.",
-        color=discord.Color.blue()
+        description=f"**Current Version:** {BOT_VERSION}",
+        color=discord.Color.gold()
     )
     await ctx.send(embed=embed)
 
-
-# Command to test reading from JSON and censor sensitive info
-# Command to test JSON read/write
 # Command to test reading from JSON and censor sensitive info
 @client.command(name='json_test')
 async def json_test(ctx):
@@ -316,57 +281,13 @@ async def json_test(ctx):
             description=f"Data loaded from JSON file:\n```json\n{json.dumps(censored_data, indent=4)}```",
             color=discord.Color.green()
         )
-        await ctx.send(embed=embed)  # Add this line to send the embed message
-
     except Exception as e:
-        logger.error(f"Error occurred in json_test command: {e}")
         embed = discord.Embed(
-            title="Error",
-            description="An unexpected error occurred.",
+            title="JSON Test",
+            description=f"Error: {e}",
             color=discord.Color.red()
         )
-        await ctx.send(embed=embed)
+    
+    await ctx.send(embed=embed)
 
-# Command to restart the bot
-# Command to restart the bot
-@client.command(name='restart')
-async def restart(ctx):
-    if ctx.author.id == AUTHORIZED_USER_ID:
-        # Request confirmation via DM
-        def check(m):
-            return m.author == ctx.author and m.channel.type == discord.ChannelType.private
-
-        try:
-            # Send a DM to the user asking for confirmation
-            await ctx.author.send(
-                "Are you sure you want to restart the bot? Type 'YES' to confirm."
-            )
-            
-            # Wait for the user's confirmation response
-            confirmation_message = await client.wait_for('message', timeout=60.0, check=check)
-            
-            if confirmation_message.content.strip().upper() == 'YES':
-                await ctx.send("Restarting the bot...")
-                logger.info("Restart command issued. Restarting the bot...")
-                
-                # Close the bot connection
-                await client.close()
-
-                # Restart the bot by re-running the script
-                os.execv(sys.executable, ['python'] + sys.argv)
-            else:
-                await ctx.send("Restart canceled. You did not type 'YES'.")
-                
-        except asyncio.TimeoutError:
-            await ctx.send("Restart canceled. You did not respond in time.")
-            logger.info("Restart command timed out.")
-            
-        except Exception as e:
-            await ctx.send(f"An error occurred: {e}")
-            logger.error(f"Error during restart command: {e}")
-            
-    else:
-        await ctx.send("You are not authorized to use this command.")
-
-# Run the bot
 client.run(BOT_TOKEN)
