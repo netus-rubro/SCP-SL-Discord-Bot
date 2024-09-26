@@ -1,4 +1,5 @@
 import os
+import sys
 import asyncio
 import discord
 from discord.ext import commands
@@ -12,7 +13,7 @@ import importlib.util
 
 # Constants
 last_query_time = 0
-QUERY_INTERVAL = 11
+QUERY_INTERVAL = 5
 DATA_FILE = 'player_data.json'
 
 # Load sensitive information from key.py
@@ -50,7 +51,7 @@ WAIT_TIME = config.get("WAIT_TIME", 60)
 ENABLE_STATUS = config.get("ENABLE_STATUS", True)
 SERVER_INDEX = config.get("SERVER_INDEX", 0)
 BLACKLIST = config.get("BLACKLIST", [])
-BOT_VERSION = "v4.1.0"
+BOT_VERSION = "v4.2.0"
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -128,11 +129,48 @@ async def set_bot_status(session):
         logger.error(f"Error fetching status from API: {e}")
         await client.change_presence(status=discord.Status.idle, activity=discord.Game(name=f"Error: {e}"))
 
+# Reconnect logic with exponential backoff
+async def reconnect_with_backoff(max_retries=5):
+    retry_delay = 1  # Start with a 1-second delay
+    for attempt in range(max_retries):
+        try:
+            await client.connect(reconnect=True)
+            return
+        except Exception as e:
+            logger.error(f"Reconnect attempt {attempt + 1} failed: {e}")
+            if attempt < max_retries - 1:
+                logger.info(f"Retrying in {retry_delay} seconds...")
+                await asyncio.sleep(retry_delay)
+                retry_delay *= 2  # Exponential backoff
+            else:
+                logger.error("Max reconnect attempts reached, giving up.")
+                break
+
+# Restart the bot
+async def restart_bot():
+    logger.warning("Restarting the bot due to connection issues...")
+    os.execv(sys.executable, ['python'] + sys.argv)
+
 # Event: When the bot is ready
 @client.event
 async def on_ready():
     logger.info("The bot is running.")
     
+    async with aiohttp.ClientSession() as session:
+        while True:
+            await set_bot_status(session)
+            await asyncio.sleep(WAIT_TIME)
+
+# Event: Bot disconnects
+@client.event
+async def on_disconnect():
+    logger.warning("Bot disconnected from Discord.")
+    await restart_bot()
+
+# Event: Bot resumes connection
+@client.event
+async def on_resumed():
+    logger.info("Bot reconnected to Discord.")
     async with aiohttp.ClientSession() as session:
         while True:
             await set_bot_status(session)
@@ -168,7 +206,6 @@ async def help_command(ctx):
             "`!ping` - Check the bot's latency.\n"
             "`!help` - Display this help message.\n"
             "`!players` - Display the amount of players currently in the server.\n"
-            "`!info` - Display the system uptime and other information.\n"
             "`!version` - Displays the bot's current version.\n"
             "`!json_test` - Test reading from the JSON file.\n"
         ),
@@ -220,37 +257,20 @@ async def player_count(ctx):
             else:
                 embed = discord.Embed(
                     title="Player Count",
-                    description="No player count data available from the API.",
+                    description=f"Failed to fetch player count from the API. Please try again later.",
                     color=discord.Color.red()
                 )
                 await ctx.send(embed=embed)
         except Exception as e:
-            logger.error(f"General Error: {e}")
-            embed = discord.Embed(
-                title="Error",
-                description="Unable to fetch player count information.",
-                color=discord.Color.red()
-            )
-            await ctx.send(embed=embed)
+            logger.error(f"Error fetching player count: {e}")
     else:
         embed = discord.Embed(
             title="Player Count",
-            description="Please wait before requesting player count again.",
-            color=discord.Color.orange()
+            description=f"Please wait {QUERY_INTERVAL} seconds between queries.",
+            color=discord.Color.yellow()
         )
         await ctx.send(embed=embed)
 
-# Version command
-@client.command(name='version')
-async def version(ctx):
-    embed = discord.Embed(
-        title="Bot Version",
-        description=f"**Current Version:** {BOT_VERSION}",
-        color=discord.Color.gold()
-    )
-    await ctx.send(embed=embed)
-
-# Command to test reading from JSON and censor sensitive info
 @client.command(name='json_test')
 async def json_test(ctx):
     try:
@@ -290,4 +310,19 @@ async def json_test(ctx):
     
     await ctx.send(embed=embed)
 
-client.run(BOT_TOKEN)
+@client.command(name='version')
+async def version(ctx):
+    embed = discord.Embed(
+        title="Bot Version",
+        description=f"**Current Version:** {BOT_VERSION}",
+        color=discord.Color.gold()
+    )
+    await ctx.send(embed=embed)
+
+# Run the bot
+if __name__ == "__main__":
+    try:
+        client.run(BOT_TOKEN)
+    except Exception as e:
+        logger.error(f"Failed to start the bot: {e}")
+        asyncio.run(reconnect_with_backoff())
