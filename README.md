@@ -14,7 +14,7 @@
 ##
 ### Get your server account id and the api key
 
-  You can use the scpsl server console to get the id
+  You can use the scpsl server console to get the account id
   
     !id
   And the api key
