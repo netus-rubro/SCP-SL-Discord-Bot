@@ -51,7 +51,7 @@ WAIT_TIME = config.get("WAIT_TIME", 60)
 ENABLE_STATUS = config.get("ENABLE_STATUS", True)
 SERVER_INDEX = config.get("SERVER_INDEX", 0)
 BLACKLIST = config.get("BLACKLIST", [])
-BOT_VERSION = "v4.3.0"
+BOT_VERSION = "v4.2.0"
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
