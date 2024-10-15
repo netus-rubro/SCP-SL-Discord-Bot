@@ -51,7 +51,7 @@ WAIT_TIME = config.get("WAIT_TIME", 60)
 ENABLE_STATUS = config.get("ENABLE_STATUS", True)
 SERVER_INDEX = config.get("SERVER_INDEX", 0)
 BLACKLIST = config.get("BLACKLIST", [])
-BOT_VERSION = "v4.2.0"
+BOT_VERSION = "v4.3.0"
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -130,12 +130,12 @@ async def set_bot_status(session):
         await client.change_presence(status=discord.Status.idle, activity=discord.Game(name=f"Error: {e}"))
 
 # Reconnect logic with exponential backoff
-async def reconnect_with_backoff(max_retries=5):
+async def reconnect_with_backoff(max_retries=10):
     retry_delay = 1  # Start with a 1-second delay
     for attempt in range(max_retries):
         try:
-            await client.connect(reconnect=True)
-            return
+            session = await create_session()
+            return session
         except Exception as e:
             logger.error(f"Reconnect attempt {attempt + 1} failed: {e}")
             if attempt < max_retries - 1:
@@ -151,30 +151,37 @@ async def restart_bot():
     logger.warning("Restarting the bot due to connection issues...")
     os.execv(sys.executable, ['python'] + sys.argv)
 
+    
+async def create_session():
+    return aiohttp.ClientSession
+
 # Event: When the bot is ready
 @client.event
 async def on_ready():
     logger.info("The bot is running.")
     
-    async with aiohttp.ClientSession() as session:
-        while True:
-            await set_bot_status(session)
-            await asyncio.sleep(WAIT_TIME)
+    session = await create_session
+    while True:
+        await set_bot_status(session)
+        await asyncio.sleep(WAIT_TIME)
 
 # Event: Bot disconnects
 @client.event
 async def on_disconnect():
     logger.warning("Bot disconnected from Discord.")
-    await restart_bot()
+    
+    # Attempt to reconnect
+    await reconnect_with_backoff()
+
 
 # Event: Bot resumes connection
 @client.event
 async def on_resumed():
     logger.info("Bot reconnected to Discord.")
-    async with aiohttp.ClientSession() as session:
-        while True:
-            await set_bot_status(session)
-            await asyncio.sleep(WAIT_TIME)
+    session = await create_session
+    while True:
+        await set_bot_status(session)
+        await asyncio.sleep(WAIT_TIME)
 
 # Event: Message processing and command handling
 @client.event
