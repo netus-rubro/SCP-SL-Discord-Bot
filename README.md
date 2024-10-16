@@ -24,7 +24,7 @@
 ##
 ### Get a bot token
 
-  You need to got to the [Discord Developer Portal](https://discord.com/developers/applications) then click New Application in the top right corner.
+  You need to go to the [Discord Developer Portal](https://discord.com/developers/applications) then click New Application in the top right corner.
   
   You can name the bot how ever you want.
   
@@ -42,7 +42,7 @@
 ##
 ## Run the bot
   
-   On Windows you can just open bot.py
+   On Windows you can just open main.py
 
    On Debian/Ubuntu you can just open the bot via the terminal. You need to navigate to the directory where the bot is located and use the command
    
