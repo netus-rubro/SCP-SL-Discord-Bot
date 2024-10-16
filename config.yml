@@ -1,0 +1,15 @@
+# Amount of time between API queires, Don't set below 11
+WAIT_TIME: 60
+# Set true to have a status on the bot showing how many people are playing
+ENABLE_STATUS: true
+# Not essential anymore, Don't touch
+SERVER_INDEX: 0
+# Words the bot won't allow in commands
+BLACKLIST:
+  - "!"
+  - "!!"
+  - "!!!"
+# Choose from "-Beta" or "-Public"; This is for auto updater
+VERSION_SUFFIX: "-Public"  
+# If you want to be prompted when there is an update or if you'd like to suppress it
+auto_updates: True 

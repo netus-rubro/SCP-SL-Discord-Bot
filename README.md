@@ -37,6 +37,9 @@
 ### Put your info into `key.py`
 
 ##
+### Then run `dependt.py` to install the required Dependencies.
+
+##
 ## Run the bot
   
    On Windows you can just open bot.py
