@@ -48,3 +48,7 @@
    
     ./main.py
 
+
+##
+If you have issues contact joseph_fallen on discord
+
