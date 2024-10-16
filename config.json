@@ -1,7 +1,0 @@
-{
-  "WAIT_TIME": 60,
-  "ENABLE_STATUS": true,
-  "SERVER_INDEX": 0,
-  "BLACKLIST": [],
-  "AUTHORIZED_USER_ID": REPLACE,     "_comment": "Replace with user ID"
-}
