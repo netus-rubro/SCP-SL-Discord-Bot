@@ -23,15 +23,18 @@ def load_config():
         return {'auto_update': True}  # Default settings on error
 
 # Function to update the bot code from GitHub
-async def update_bot_code():
+async def update_bot_code(download_url):
     try:
         repo_path = os.path.dirname(os.path.abspath(__file__))  # Path to the repo
-        download_url = "https://github.com/Josephfallen/SCP-SL-Discord-Bot/releases/download/v4.2.1-Public/4.2.1-Public.zip"
         
         # Download the zip file
         async with aiohttp.ClientSession() as session:
             async with session.get(download_url) as response:
                 if response.status == 200:
+                    # Accept any binary response as a valid zip
+                    content_type = response.headers.get('Content-Type')
+                    logger.info(f"Response content type: {content_type}")
+
                     zip_file_path = os.path.join(repo_path, "update.zip")
                     with open(zip_file_path, "wb") as zip_file:
                         zip_file.write(await response.read())
@@ -68,9 +71,10 @@ async def update_bot_code():
 
                 else:
                     logger.error(f"Failed to download zip: {response.status} - {response.reason}")
-                    
+
     except Exception as e:
         logger.error(f"Error updating bot code: {e}")
+
 
 # Function to check for updates
 async def check_for_updates(bot_version, version_suffix):
@@ -78,31 +82,29 @@ async def check_for_updates(bot_version, version_suffix):
     if not config.get('auto_update', True):
         logger.info("Auto-update is disabled in the config. Skipping update.")
         return  # Skip update process if auto_update is set to false
-    
+
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get("https://api.github.com/repos/Josephfallen/SCP-SL-Discord-Bot/releases/latest") as response:
                 if response.status == 200:
                     release_info = await response.json()
-                    logger.info(f"Fetched latest release: {release_info['tag_name']}")
-                    # Check for the release assets
-                    assets = release_info.get('assets', [])
-                    zip_asset = next((asset for asset in assets if asset['name'].endswith('.zip')), None)
+                    latest_version = release_info['tag_name']
+                    logger.info(f"Fetched latest release: {latest_version}")
 
-                    if zip_asset:
-                        logger.info(f"Available assets: {[asset['name'] for asset in assets]}")
-                        # Check if there's a new version
-                        if zip_asset['name'] != bot_version:
-                            logger.info(f"A new version is available: {zip_asset['name']}. Would you like to update? (Y/N)")
-                            user_input = input("Update now? (Y/N): ").strip().upper()
-                            if user_input == 'Y':
-                                await update_bot_code()
+                    # Check if there's a new version by comparing only the version number part
+                    if latest_version != bot_version:
+                        logger.info(f"A new version is available: {latest_version}. Would you like to update? (Y/N)")
+                        user_input = input("Update now? (Y/N): ").strip().upper()
+                        if user_input == 'Y':
+                            download_url = next((asset['browser_download_url'] for asset in release_info['assets'] if asset['name'].endswith('.zip')), None)
+                            if download_url:
+                                await update_bot_code(download_url)
                             else:
-                                logger.info("Update skipped.")
+                                logger.error("No valid download URL found for the new version.")
                         else:
-                            logger.info("You are running the latest version.")
+                            logger.info("Update skipped.")
                     else:
-                        logger.error("Zip asset not found in the latest release.")
+                        logger.info("You are running the latest version.")
                 else:
                     logger.error(f"Failed to fetch latest release: {response.status} - {response.reason}")
 

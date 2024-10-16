@@ -56,7 +56,7 @@ ENABLE_STATUS = config.get("ENABLE_STATUS", True)
 SERVER_INDEX = config.get("SERVER_INDEX", 0)
 BLACKLIST = config.get("BLACKLIST", [])
 VERSION_SUFFIX = config.get("VERSION_SUFFIX", "-Public")  # Get version suffix from config
-BOT_VERSION = "v4.3.0" + VERSION_SUFFIX  # Append the suffix to the bot version
+BOT_VERSION = "v4.3.1" + VERSION_SUFFIX  # Append the suffix to the bot version
 
 # Setup logging with Loguru
 logger.add(sys.stdout, format="{time} {level} {message}", level="INFO")
