@@ -51,7 +51,7 @@ WAIT_TIME = config.get("WAIT_TIME", 60)
 ENABLE_STATUS = config.get("ENABLE_STATUS", True)
 SERVER_INDEX = config.get("SERVER_INDEX", 0)
 BLACKLIST = config.get("BLACKLIST", [])
-BOT_VERSION = "v4.2.0"
+BOT_VERSION = "v4.2.1"
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -88,6 +88,7 @@ def load_json_data(filename):
 # Function to set the bot's status based on API data
 async def set_bot_status(session):
     try:
+        # Correct usage of session.get() with a proper URL argument
         async with session.get(f"https://api.scpslgame.com/serverinfo.php?id={ID}&key={API_KEY}&players=true") as response:
             content_type = response.headers.get('Content-Type', '')
 
@@ -98,15 +99,14 @@ async def set_bot_status(session):
             raw_text = await response.text()
             logger.info(f"Raw content: {raw_text}")
 
-            # Attempt to manually parse as JSON, since the content type is incorrect
+            # Attempt to manually parse as JSON
             try:
-                data = json.loads(raw_text)  # Attempt to parse the raw text as JSON
+                data = json.loads(raw_text)  # Parse raw text as JSON
             except json.JSONDecodeError as json_err:
                 logger.error(f"Failed to parse response as JSON: {json_err}")
                 await client.change_presence(status=discord.Status.idle, activity=discord.Game(name="Error parsing server data"))
                 return
 
-            # Handle the JSON data if parsing succeeds
             if data.get("Success"):
                 player_count = data["Servers"][SERVER_INDEX]["Players"]
                 total_players, total_slots = map(int, player_count.split("/"))
@@ -153,14 +153,15 @@ async def restart_bot():
 
     
 async def create_session():
-    return aiohttp.ClientSession
+    return aiohttp.ClientSession()
 
 # Event: When the bot is ready
 @client.event
 async def on_ready():
     logger.info("The bot is running.")
     
-    session = await create_session
+    # Correct session creation
+    session = await create_session()  # Note the parentheses to call the function
     while True:
         await set_bot_status(session)
         await asyncio.sleep(WAIT_TIME)
@@ -178,7 +179,9 @@ async def on_disconnect():
 @client.event
 async def on_resumed():
     logger.info("Bot reconnected to Discord.")
-    session = await create_session
+    
+    # Correct session creation
+    session = await create_session()  # Again, parentheses are needed here
     while True:
         await set_bot_status(session)
         await asyncio.sleep(WAIT_TIME)
